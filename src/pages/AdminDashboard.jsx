@@ -1,5 +1,6 @@
 
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
+import { supabase } from '../supabaseClient.js';
 
 export default function AdminDashboard({
   profile,
@@ -12,12 +13,16 @@ export default function AdminDashboard({
   onRefresh,
   onLogout
 }) {
-  const [activePage, setActivePage] = useState('Dashboard');
+  const [page, setPage] = useState('Dashboard');
   const [selectedMember, setSelectedMember] = useState('');
   const [amount, setAmount] = useState('');
   const [notes, setNotes] = useState('');
+  const [requests, setRequests] = useState([]);
+  const [transactions, setTransactions] = useState([]);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState('');
+  const [error, setError] = useState('');
+  const [reportType, setReportType] = useState('daily');
 
   const money = value =>
     Number(value || 0).toLocaleString('en-PH', {
@@ -25,88 +30,22 @@ export default function AdminDashboard({
       currency: 'PHP'
     });
 
-  async function approve(id) {
-    try {
-      await onApproveMember(id);
-      setMessage('Membership approved successfully!');
-    } catch (err) {
-      setMessage('Approval error: ' + err.message);
-    }
-  }
-
-  async function reject(id) {
-    if (!window.confirm('Reject this membership application?')) return;
-
-    try {
-      await onRejectMember(id);
-      setMessage('Membership rejected.');
-    } catch (err) {
-      setMessage('Rejection error: ' + err.message);
-    }
-  }
-
-  async function submitDeposit(e) {
-    e.preventDefault();
-    setMessage('');
-
-    if (!selectedMember) {
-      setMessage('Please select a member.');
-      return;
-    }
-
-    if (!amount || Number(amount) <= 0) {
-      setMessage('Please enter a valid amount.');
-      return;
-    }
-
-    setSaving(true);
-
-    try {
-      const balance = await onAddDeposit(
-        selectedMember,
-        amount,
-        notes
-      );
-
-      setMessage(
-        'Deposit successful! New balance: ' + money(balance)
-      );
-
-      setAmount('');
-      setNotes('');
-      setSelectedMember('');
-
-      if (onRefresh) await onRefresh();
-    } catch (err) {
-      setMessage('Deposit failed: ' + err.message);
-    } finally {
-      setSaving(false);
-    }
-  }
-
-  const menu = [
-    'Dashboard',
-    'Membership Approval',
-    'Members',
-    'Add Deposit'
-  ];
-
   const styles = {
     app: {
       minHeight: '100vh',
-      background: '#f0f7ff',
+      background: '#eef6ff',
       fontFamily: 'Arial, sans-serif',
-      color: '#18324d'
+      color: '#17324d'
     },
     header: {
       background: '#0879c9',
-      color: 'white',
-      padding: '20px',
+      color: '#fff',
+      padding: '18px 25px',
       display: 'flex',
       justifyContent: 'space-between',
       alignItems: 'center',
       flexWrap: 'wrap',
-      gap: '10px'
+      gap: 10
     },
     layout: {
       display: 'flex',
@@ -114,64 +53,238 @@ export default function AdminDashboard({
       flexWrap: 'wrap'
     },
     sidebar: {
-      width: '230px',
-      background: '#ffffff',
-      padding: '18px',
+      width: 235,
+      background: '#fff',
+      padding: 18,
       boxSizing: 'border-box'
     },
     content: {
       flex: 1,
-      minWidth: '280px',
-      padding: '25px',
+      minWidth: 280,
+      padding: 25,
       boxSizing: 'border-box'
     },
-    menuButton: {
-      display: 'block',
-      width: '100%',
-      padding: '13px',
-      marginBottom: '8px',
-      border: 'none',
-      borderRadius: '8px',
-      textAlign: 'left',
-      cursor: 'pointer',
-      fontWeight: 'bold'
-    },
     card: {
-      background: 'white',
-      borderRadius: '12px',
-      padding: '20px',
-      boxShadow: '0 2px 10px #00000010',
-      marginBottom: '16px'
+      background: '#fff',
+      padding: 20,
+      borderRadius: 12,
+      boxShadow: '0 2px 9px #00000010',
+      marginBottom: 16
     },
     button: {
-      padding: '10px 15px',
-      border: 'none',
-      borderRadius: '7px',
       background: '#0879c9',
-      color: 'white',
+      color: '#fff',
+      padding: '11px 16px',
+      border: 0,
+      borderRadius: 7,
       cursor: 'pointer',
-      margin: '3px'
+      margin: 3
     },
     input: {
+      display: 'block',
       width: '100%',
-      padding: '12px',
-      border: '1px solid #cbd5e1',
-      borderRadius: '7px',
-      boxSizing: 'border-box',
-      marginTop: '7px',
-      marginBottom: '15px'
+      padding: 12,
+      marginTop: 7,
+      marginBottom: 16,
+      border: '1px solid #ccd8e5',
+      borderRadius: 7,
+      boxSizing: 'border-box'
+    },
+    table: {
+      width: '100%',
+      borderCollapse: 'collapse',
+      minWidth: 550
+    },
+    cell: {
+      padding: 12,
+      borderBottom: '1px solid #e5edf5',
+      textAlign: 'left'
     }
   };
+
+  async function loadRecords() {
+    setError('');
+
+    const { data: tx, error: txError } = await supabase
+      .from('jcs_transactions')
+      .select('*')
+      .order('created_at', { ascending: false });
+
+    if (txError) {
+      setError('Transaction history: ' + txError.message);
+    } else {
+      setTransactions(tx || []);
+    }
+
+    // Withdrawal requests are loaded if the table exists.
+    const { data: withdrawals, error: withdrawalError } = await supabase
+      .from('jcs_withdrawal_requests')
+      .select('*')
+      .order('created_at', { ascending: false });
+
+    if (withdrawalError) {
+      setRequests([]);
+      if (withdrawalError.code !== '42P01') {
+        setError('Withdrawal requests: ' + withdrawalError.message);
+      }
+    } else {
+      setRequests(withdrawals || []);
+    }
+  }
+
+  useEffect(() => {
+    loadRecords();
+  }, []);
+
+  async function refreshAll() {
+    try {
+      if (onRefresh) await onRefresh();
+      await loadRecords();
+    } catch (err) {
+      setError(err.message);
+    }
+  }
+
+  async function approveMember(id) {
+    try {
+      setMessage('');
+      setError('');
+      await onApproveMember(id);
+      await refreshAll();
+      setMessage('Membership approved successfully!');
+    } catch (err) {
+      setError(err.message);
+    }
+  }
+
+  async function rejectMember(id) {
+    if (!window.confirm('Are you sure you want to reject this member?')) return;
+
+    try {
+      await onRejectMember(id);
+      await refreshAll();
+      setMessage('Membership rejected.');
+    } catch (err) {
+      setError(err.message);
+    }
+  }
+
+  async function submitDeposit(e) {
+    e.preventDefault();
+    setSaving(true);
+    setMessage('');
+    setError('');
+
+    try {
+      if (!selectedMember) throw new Error('Please select a member.');
+      if (!amount || Number(amount) <= 0) {
+        throw new Error('Enter a valid deposit amount.');
+      }
+
+      await onAddDeposit(selectedMember, Number(amount), notes);
+
+      setMessage('Deposit successfully recorded!');
+      setSelectedMember('');
+      setAmount('');
+      setNotes('');
+
+      await refreshAll();
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  const totalDeposits = transactions
+    .filter(tx => tx.transaction_type === 'deposit')
+    .reduce((sum, tx) => sum + Number(tx.amount), 0);
+
+  const totalWithdrawals = transactions
+    .filter(tx => tx.transaction_type === 'withdrawal')
+    .reduce((sum, tx) => sum + Number(tx.amount), 0);
+
+  const totalSavings = members.reduce(
+    (sum, member) => sum + Number(member.balance || 0),
+    0
+  );
+
+  async function updateWithdrawal(id, status) {
+    if (!window.confirm(`Are you sure you want to ${status} this withdrawal?`)) return;
+
+    setError('');
+    setMessage('');
+
+    try {
+      const { error } = await supabase.rpc('admin_process_withdrawal', {
+        p_request_id: id,
+        p_status: status
+      });
+
+      if (error) throw error;
+
+      await refreshAll();
+      setMessage('Withdrawal request ' + status + ' successfully.');
+    } catch (err) {
+      setError(err.message);
+    }
+  }
+
+  const filteredTransactions = transactions.filter(tx => {
+    const date = new Date(tx.created_at);
+    const now = new Date();
+
+    if (reportType === 'daily') {
+      return date.toDateString() === now.toDateString();
+    }
+
+    return (
+      date.getMonth() === now.getMonth() &&
+      date.getFullYear() === now.getFullYear()
+    );
+  });
+
+  function navButton(name) {
+    return (
+      <button
+        key={name}
+        onClick={() => {
+          setPage(name);
+          setMessage('');
+          setError('');
+          if (name === 'Transaction History' || name === 'Withdrawal Requests') {
+            refreshAll();
+          }
+        }}
+        style={{
+          display: 'block',
+          width: '100%',
+          textAlign: 'left',
+          padding: 13,
+          marginBottom: 7,
+          border: 0,
+          borderRadius: 7,
+          cursor: 'pointer',
+          background: page === name ? '#dceeff' : '#fff',
+          color: '#0879c9',
+          fontWeight: 'bold'
+        }}
+      >
+        {name}
+      </button>
+    );
+  }
 
   return (
     <div style={styles.app}>
       <header style={styles.header}>
         <div>
           <h2 style={{ margin: 0 }}>J-Cooperative and Savings</h2>
-          <small>Administrator: {profile?.full_name || profile?.email}</small>
+          <small>Admin: {profile?.full_name || profile?.email}</small>
         </div>
+
         <button
-          style={{ ...styles.button, background: '#ffffff', color: '#0879c9' }}
+          style={{ ...styles.button, background: '#fff', color: '#0879c9' }}
           onClick={onLogout}
         >
           Logout
@@ -180,61 +293,62 @@ export default function AdminDashboard({
 
       <div style={styles.layout}>
         <aside style={styles.sidebar}>
-          {menu.map(item => (
-            <button
-              key={item}
-              style={{
-                ...styles.menuButton,
-                background: activePage === item ? '#dbeeff' : '#ffffff',
-                color: '#0879c9'
-              }}
-              onClick={() => {
-                setActivePage(item);
-                setMessage('');
-              }}
-            >
-              {item}
-            </button>
-          ))}
+          {[
+            'Dashboard',
+            'Membership Approval',
+            'Members',
+            'Add Deposit',
+            'Withdrawal Requests',
+            'Transaction History',
+            'Reports'
+          ].map(navButton)}
         </aside>
 
         <main style={styles.content}>
           {message && (
-            <div style={styles.card}>
+            <div style={{ ...styles.card, color: '#087a40' }}>
               {message}
             </div>
           )}
 
-          {activePage === 'Dashboard' && (
+          {error && (
+            <div style={{ ...styles.card, color: '#c62828' }}>
+              {error}
+            </div>
+          )}
+
+          {page === 'Dashboard' && (
             <>
               <h2>Admin Dashboard</h2>
+
               <div style={{
                 display: 'grid',
                 gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))',
-                gap: '15px'
+                gap: 15
               }}>
-                <div style={styles.card}>
-                  <h3>Total Members</h3>
-                  <h1>{members.length}</h1>
-                </div>
-                <div style={styles.card}>
-                  <h3>Pending Applications</h3>
-                  <h1>{pendingMembers.length}</h1>
-                </div>
-                <div style={styles.card}>
-                  <h3>Total Savings</h3>
-                  <h1>{money(stats.savings)}</h1>
-                </div>
+                {[
+                  ['Total Members', members.length],
+                  ['Total Savings', money(totalSavings)],
+                  ['Total Deposits', money(totalDeposits)],
+                  ['Total Withdrawals', money(totalWithdrawals)]
+                ].map(([title, value]) => (
+                  <div style={styles.card} key={title}>
+                    <h3>{title}</h3>
+                    <h2>{value}</h2>
+                  </div>
+                ))}
               </div>
-              <button style={styles.button} onClick={onRefresh}>
+
+              <button style={styles.button} onClick={refreshAll}>
                 Refresh Dashboard
               </button>
             </>
           )}
 
-          {activePage === 'Membership Approval' && (
+          {page === 'Membership Approval' && (
             <>
               <h2>Membership Approval</h2>
+
               {pendingMembers.length === 0 ? (
                 <div style={styles.card}>No pending applications.</div>
               ) : pendingMembers.map(member => (
@@ -244,13 +358,13 @@ export default function AdminDashboard({
                   <p>{member.phone}</p>
                   <button
                     style={styles.button}
-                    onClick={() => approve(member.id)}
+                    onClick={() => approveMember(member.id)}
                   >
                     Approve
                   </button>
                   <button
                     style={{ ...styles.button, background: '#dc2626' }}
-                    onClick={() => reject(member.id)}
+                    onClick={() => rejectMember(member.id)}
                   >
                     Reject
                   </button>
@@ -259,66 +373,69 @@ export default function AdminDashboard({
             </>
           )}
 
-          {activePage === 'Members' && (
+          {page === 'Members' && (
             <>
               <h2>Approved Members ({members.length})</h2>
-              {members.length === 0 ? (
-                <div style={styles.card}>
-                  No approved members found.
-                </div>
-              ) : (
-                <div style={styles.card}>
+
+              <div style={styles.card}>
+                {members.length === 0 ? (
+                  'No approved members found.'
+                ) : (
                   <div style={{ overflowX: 'auto' }}>
-                    <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                    <table style={styles.table}>
                       <thead>
                         <tr>
-                          <th align="left">Member</th>
-                          <th align="left">Email</th>
-                          <th align="left">Account Number</th>
+                          <th style={styles.cell}>Name</th>
+                          <th style={styles.cell}>Email</th>
+                          <th style={styles.cell}>Member Number</th>
+                          <th style={styles.cell}>Balance</th>
                         </tr>
                       </thead>
                       <tbody>
                         {members.map(member => (
                           <tr key={member.id}>
-                            <td style={{ padding: '12px 5px' }}>
-                              {member.full_name}
+                            <td style={styles.cell}>{member.full_name}</td>
+                            <td style={styles.cell}>{member.email}</td>
+                            <td style={styles.cell}>{member.member_number}</td>
+                            <td style={styles.cell}>
+                              {money(member.balance)}
                             </td>
-                            <td>{member.email}</td>
-                            <td>{member.member_number || 'Pending number'}</td>
                           </tr>
                         ))}
                       </tbody>
                     </table>
                   </div>
-                </div>
-              )}
-              <button style={styles.button} onClick={onRefresh}>
+                )}
+              </div>
+
+              <button style={styles.button} onClick={refreshAll}>
                 Refresh Members
               </button>
             </>
           )}
 
-          {activePage === 'Add Deposit' && (
+          {page === 'Add Deposit' && (
             <>
               <h2>Add Member Deposit</h2>
+
               <form style={styles.card} onSubmit={submitDeposit}>
-                <label>Select Approved Member</label>
+                <label>Select Member</label>
                 <select
                   style={styles.input}
                   value={selectedMember}
                   onChange={e => setSelectedMember(e.target.value)}
                   required
                 >
-                  <option value="">-- Choose Member --</option>
+                  <option value="">-- Choose Approved Member --</option>
                   {members.map(member => (
                     <option key={member.id} value={member.id}>
-                      {member.full_name} - {member.member_number}
+                      {member.full_name} ({member.member_number})
                     </option>
                   ))}
                 </select>
 
                 {members.length === 0 && (
-                  <p>No approved members available. Approve a member first.</p>
+                  <p>No approved members available. Please refresh.</p>
                 )}
 
                 <label>Deposit Amount (₱)</label>
@@ -333,11 +450,10 @@ export default function AdminDashboard({
                   required
                 />
 
-                <label>Notes (optional)</label>
+                <label>Notes</label>
                 <input
                   style={styles.input}
-                  type="text"
-                  placeholder="Deposit description"
+                  placeholder="Optional description"
                   value={notes}
                   onChange={e => setNotes(e.target.value)}
                 />
@@ -350,6 +466,110 @@ export default function AdminDashboard({
                   {saving ? 'Saving...' : 'Add Deposit'}
                 </button>
               </form>
+            </>
+          )}
+
+          {page === 'Withdrawal Requests' && (
+            <>
+              <h2>Withdrawal Requests</h2>
+
+              {requests.length === 0 ? (
+                <div style={styles.card}>No withdrawal requests found.</div>
+              ) : requests.map(request => (
+                <div style={styles.card} key={request.id}>
+                  <p><b>Member ID:</b> {request.member_id}</p>
+                  <p><b>Amount:</b> {money(request.amount)}</p>
+                  <p><b>Status:</b> {request.status}</p>
+
+                  {request.status === 'pending' && (
+                    <>
+                      <button
+                        style={styles.button}
+                        onClick={() => updateWithdrawal(request.id, 'approved')}
+                      >
+                        Approve
+                      </button>
+                      <button
+                        style={{ ...styles.button, background: '#dc2626' }}
+                        onClick={() => updateWithdrawal(request.id, 'rejected')}
+                      >
+                        Reject
+                      </button>
+                    </>
+                  )}
+                </div>
+              ))}
+            </>
+          )}
+
+          {page === 'Transaction History' && (
+            <>
+              <h2>Transaction History</h2>
+
+              <div style={styles.card}>
+                {transactions.length === 0 ? (
+                  'No transactions recorded.'
+                ) : (
+                  <div style={{ overflowX: 'auto' }}>
+                    <table style={styles.table}>
+                      <thead>
+                        <tr>
+                          <th style={styles.cell}>Date</th>
+                          <th style={styles.cell}>Member ID</th>
+                          <th style={styles.cell}>Type</th>
+                          <th style={styles.cell}>Amount</th>
+                          <th style={styles.cell}>Description</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {transactions.map(tx => (
+                          <tr key={tx.id}>
+                            <td style={styles.cell}>
+                              {new Date(tx.created_at).toLocaleString()}
+                            </td>
+                            <td style={styles.cell}>{tx.member_id}</td>
+                            <td style={styles.cell}>{tx.transaction_type}</td>
+                            <td style={styles.cell}>{money(tx.amount)}</td>
+                            <td style={styles.cell}>{tx.description}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+            </>
+          )}
+
+          {page === 'Reports' && (
+            <>
+              <h2>Reports</h2>
+
+              <div style={styles.card}>
+                <label>Report Period</label>
+                <select
+                  style={styles.input}
+                  value={reportType}
+                  onChange={e => setReportType(e.target.value)}
+                >
+                  <option value="daily">Today</option>
+                  <option value="monthly">This Month</option>
+                </select>
+
+                <h3>Deposits: {money(
+                  filteredTransactions
+                    .filter(tx => tx.transaction_type === 'deposit')
+                    .reduce((sum, tx) => sum + Number(tx.amount), 0)
+                )}</h3>
+
+                <h3>Withdrawals: {money(
+                  filteredTransactions
+                    .filter(tx => tx.transaction_type === 'withdrawal')
+                    .reduce((sum, tx) => sum + Number(tx.amount), 0)
+                )}</h3>
+
+                <h3>Transactions: {filteredTransactions.length}</h3>
+              </div>
             </>
           )}
         </main>

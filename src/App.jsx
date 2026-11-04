@@ -1,73 +1,127 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
+import { supabase } from './supabaseClient.js';
+import { logoutUser } from './auth.js';
+
+import Login from './pages/Login.jsx';
+import Register from './pages/Register.jsx';
+import Dashboard from './pages/Dashboard.jsx';
+import AdminDashboard from './pages/AdminDashboard.jsx';
 
 export default function App() {
+  const [user, setUser] = useState(null);
+  const [profile, setProfile] = useState(null);
+  const [page, setPage] = useState('login');
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+
+  async function loadProfile(currentUser) {
+    const { data, error } = await supabase
+      .from('profiles')
+      .select('*')
+      .eq('id', currentUser.id)
+      .single();
+
+    if (error) {
+      setError('Unable to load your profile. Please contact the administrator.');
+      setProfile(null);
+      return;
+    }
+
+    setProfile(data);
+    setError('');
+  }
+
+  useEffect(() => {
+    let mounted = true;
+
+    async function initialize() {
+      const { data } = await supabase.auth.getSession();
+
+      if (!mounted) return;
+
+      if (data.session?.user) {
+        setUser(data.session.user);
+        await loadProfile(data.session.user);
+      }
+
+      if (mounted) setLoading(false);
+    }
+
+    initialize();
+
+    const { data: listener } = supabase.auth.onAuthStateChange(
+      (event, session) => {
+        if (!mounted) return;
+
+        if (session?.user) {
+          setUser(session.user);
+          setPage('dashboard');
+        } else {
+          setUser(null);
+          setProfile(null);
+          setPage('login');
+        }
+      }
+    );
+
+    return () => {
+      mounted = false;
+      listener.subscription.unsubscribe();
+    };
+  }, []);
+
+  async function handleLogout() {
+    await logoutUser();
+  }
+
+  if (loading) {
+    return <div className="loading">Loading J Cooperative...</div>;
+  }
+
+  if (!user) {
+    if (page === 'register') {
+      return <Register onBack={() => setPage('login')} />;
+    }
+
+    return (
+      <Login
+        onLogin={async (loggedInUser) => {
+          setUser(loggedInUser);
+          await loadProfile(loggedInUser);
+          setPage('dashboard');
+        }}
+        onRegister={() => setPage('register')}
+      />
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="loading">
+        <p>{error}</p>
+        <button onClick={handleLogout}>Logout</button>
+      </div>
+    );
+  }
+
+  if (!profile) {
+    return <div className="loading">Profile not found.</div>;
+  }
+
+  if (profile.role === 'admin') {
+    return (
+      <AdminDashboard
+        profile={profile}
+        onLogout={handleLogout}
+      />
+    );
+  }
+
   return (
-    <div style={{
-      minHeight: '100vh',
-      background: '#f0f9ff',
-      fontFamily: 'Arial, sans-serif',
-      color: '#0f172a'
-    }}>
-      <header style={{
-        background: '#0284c7',
-        color: 'white',
-        padding: '22px',
-        textAlign: 'center'
-      }}>
-        <h1>J Cooperative and Savings</h1>
-        <p>Building a Better Financial Future Together</p>
-      </header>
-
-      <main style={{
-        maxWidth: '900px',
-        margin: '40px auto',
-        padding: '20px',
-        textAlign: 'center'
-      }}>
-        <h2>Welcome to J Cooperative!</h2>
-        <p>Your trusted cooperative savings management platform.</p>
-
-        <div style={{
-          display: 'flex',
-          gap: '15px',
-          justifyContent: 'center',
-          flexWrap: 'wrap',
-          marginTop: '30px'
-        }}>
-          <button style={buttonStyle}>
-            Member Login
-          </button>
-
-          <button style={buttonStyle}>
-            Admin Login
-          </button>
-
-          <button style={{
-            ...buttonStyle,
-            background: '#16a34a'
-          }}>
-            Become a Member
-          </button>
-        </div>
-      </main>
-
-      <footer style={{
-        textAlign: 'center',
-        padding: '25px',
-        color: '#64748b'
-      }}>
-        © 2026 J Cooperative and Savings
-      </footer>
-    </div>
+    <Dashboard
+      user={user}
+      profile={profile}
+      onLogout={handleLogout}
+    />
   );
 }
-
-const buttonStyle = {
-  background: '#0284c7',
-  color: 'white',
-  border: 'none',
-  padding: '14px 22px',
-  borderRadius: '8px',
-  cursor: 'pointer',
-  fontSize: '15px'
-};

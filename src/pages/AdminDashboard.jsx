@@ -25,52 +25,56 @@ export default function AdminDashboard({
       currency: 'PHP',
     });
 
-  const menuItems = [
+  const menu = [
     { id: 'dashboard', label: 'Dashboard', icon: '🏠' },
-    { id: 'members', label: 'Member Management', icon: '👥' },
     { id: 'approval', label: 'Membership Approval', icon: '✅' },
-    { id: 'deposit', label: 'Add Member Deposit', icon: '💰' },
-    { id: 'withdrawal', label: 'Withdrawal Approval', icon: '💸' },
+    { id: 'members', label: 'Members', icon: '👥' },
+    { id: 'deposit', label: 'Add Deposit', icon: '💰' },
+    { id: 'withdrawal', label: 'Withdrawal Requests', icon: '💸' },
     { id: 'transactions', label: 'Transaction History', icon: '📄' },
-    { id: 'reports', label: 'Cash Flow Reports', icon: '📊' },
+    { id: 'reports', label: 'Reports', icon: '📊' },
   ];
 
-  const pageTitles = {
-    dashboard: 'Dashboard Overview',
-    members: 'Member Management',
-    approval: 'Membership Approval',
-    deposit: 'Add Member Deposit',
-    withdrawal: 'Withdrawal Approval',
-    transactions: 'Transaction History',
-    reports: 'Cash Flow Reports',
+  const cardStyle = {
+    background: '#ffffff',
+    padding: '22px',
+    borderRadius: '14px',
+    border: '1px solid #e1edf5',
+    boxShadow: '0 3px 12px rgba(20,90,130,0.05)',
   };
 
-  async function handleApproval(member, action) {
-    setMessage('');
+  const buttonStyle = {
+    border: 'none',
+    borderRadius: '10px',
+    padding: '12px 16px',
+    cursor: 'pointer',
+    fontWeight: '600',
+  };
 
+  function navigate(page) {
+    setActivePage(page);
+    setMessage('');
+  }
+
+  async function handleApproval(member, action) {
     const callback =
       action === 'approve' ? onApproveMember : onRejectMember;
 
     if (!callback) {
-      setMessage(
-        'Membership approval is not yet connected to Supabase. Please connect the Admin functions in App.jsx.'
-      );
+      setMessage('Approval is not yet connected to Supabase. Please check App.jsx.');
       return;
     }
 
     const confirmed = window.confirm(
-      action === 'approve'
-        ? `Approve membership of ${member.full_name || member.email}?`
-        : `Reject membership of ${member.full_name || member.email}?`
+      `${action === 'approve' ? 'Approve' : 'Reject'} ${member.full_name || member.email}?`
     );
 
     if (!confirmed) return;
 
     try {
       setProcessingId(member.id);
-
+      setMessage('');
       await callback(member.id);
-
       setMessage(
         action === 'approve'
           ? 'Member successfully approved!'
@@ -117,34 +121,196 @@ export default function AdminDashboard({
     }
   }
 
+  const pageTitle = {
+    dashboard: 'Dashboard',
+    approval: 'Membership Approval',
+    members: 'Member Management',
+    deposit: 'Add Member Deposit',
+    withdrawal: 'Withdrawal Requests',
+    transactions: 'Transaction History',
+    reports: 'Cash Flow Reports',
+  };
+
   return (
-    <main className="admin-dashboard">
-      <header className="admin-header">
-        <h1>J Cooperative - Admin Panel</h1>
-        <button className="logout-btn" onClick={onLogout}>
-          Logout
+    <div style={{
+      minHeight: '100vh',
+      background: '#f0f8ff',
+      fontFamily: 'Arial, sans-serif',
+      color: '#164766',
+    }}>
+      <style>{`
+        * { box-sizing: border-box; }
+        button { font-family: inherit; }
+        .jcs-layout {
+          display: flex;
+          min-height: calc(100vh - 70px);
+        }
+        .jcs-sidebar {
+          width: 245px;
+          background: white;
+          padding: 22px 14px;
+          border-right: 1px solid #e1edf5;
+          flex-shrink: 0;
+        }
+        .jcs-main {
+          flex: 1;
+          padding: 28px;
+          min-width: 0;
+        }
+        .jcs-menu {
+          display: flex;
+          width: 100%;
+          text-align: left;
+          align-items: center;
+          gap: 12px;
+          padding: 13px;
+          margin-bottom: 6px;
+          border: none;
+          border-radius: 9px;
+          background: transparent;
+          color: #46677d;
+          cursor: pointer;
+          font-size: 14px;
+        }
+        .jcs-menu.active {
+          background: #e4f3ff;
+          color: #0879bd;
+          font-weight: bold;
+        }
+        .jcs-cards {
+          display: grid;
+          grid-template-columns: repeat(4, minmax(0, 1fr));
+          gap: 16px;
+        }
+        .jcs-actions {
+          display: grid;
+          grid-template-columns: repeat(4, minmax(0, 1fr));
+          gap: 12px;
+        }
+        .jcs-action {
+          background: #eaf6ff;
+          color: #176b9d;
+          border: 1px solid #d6ebfa;
+          padding: 20px 10px;
+          border-radius: 12px;
+          cursor: pointer;
+          font-weight: 600;
+        }
+        .jcs-action:hover { background: #d9efff; }
+        .jcs-input {
+          width: 100%;
+          padding: 12px;
+          margin: 8px 0 18px;
+          border: 1px solid #cbdde9;
+          border-radius: 8px;
+          font-size: 15px;
+        }
+        .jcs-member {
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          gap: 12px;
+          flex-wrap: wrap;
+          padding: 17px;
+          border: 1px solid #e1edf5;
+          border-radius: 10px;
+          margin-top: 12px;
+          background: white;
+        }
+        @media(max-width: 900px) {
+          .jcs-cards { grid-template-columns: repeat(2, 1fr); }
+          .jcs-actions { grid-template-columns: repeat(2, 1fr); }
+        }
+        @media(max-width: 650px) {
+          .jcs-layout { display: block; }
+          .jcs-sidebar {
+            width: 100%;
+            padding: 12px;
+            border-right: none;
+            border-bottom: 1px solid #e1edf5;
+          }
+          .jcs-menu {
+            display: inline-flex;
+            width: auto;
+            margin: 3px;
+            padding: 10px;
+          }
+          .jcs-main { padding: 17px; }
+          .jcs-cards { grid-template-columns: 1fr 1fr; }
+        }
+      `}</style>
+
+      {/* HEADER */}
+      <header style={{
+        height: 70,
+        background: '#ffffff',
+        padding: '0 25px',
+        display: 'flex',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        borderBottom: '1px solid #e1edf5',
+      }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+          <div style={{
+            background: '#168bd2',
+            color: 'white',
+            width: 42,
+            height: 42,
+            borderRadius: 11,
+            display: 'grid',
+            placeItems: 'center',
+            fontSize: 22,
+          }}>🏦</div>
+          <div>
+            <strong style={{ fontSize: 17 }}>J-COOPERATIVE</strong>
+            <div style={{ fontSize: 10, color: '#6c91a8' }}>
+              SAVINGS MANAGEMENT
+            </div>
+          </div>
+        </div>
+
+        <button
+          onClick={onLogout}
+          style={{
+            ...buttonStyle,
+            background: '#eaf5fc',
+            color: '#176b9d',
+          }}
+        >
+          Logout ↗
         </button>
       </header>
 
-      <div className="admin-layout">
-        <aside className="admin-sidebar">
-          <h3>ADMIN MENU</h3>
+      <div className="jcs-layout">
 
-          {menuItems.map((item) => (
+        {/* SIDEBAR */}
+        <aside className="jcs-sidebar">
+          <div style={{
+            fontSize: 11,
+            fontWeight: 'bold',
+            color: '#8ba7b8',
+            margin: '5px 10px 15px',
+          }}>
+            ADMIN MENU
+          </div>
+
+          {menu.map((item) => (
             <button
               key={item.id}
-              className={`admin-menu-item ${
-                activePage === item.id ? 'active' : ''
-              }`}
-              onClick={() => {
-                setActivePage(item.id);
-                setMessage('');
-              }}
+              className={`jcs-menu ${activePage === item.id ? 'active' : ''}`}
+              onClick={() => navigate(item.id)}
             >
               <span>{item.icon}</span>
               {item.label}
               {item.id === 'approval' && pendingMembers.length > 0 && (
-                <span className="pending-count">
+                <span style={{
+                  marginLeft: 'auto',
+                  background: '#168bd2',
+                  color: 'white',
+                  padding: '3px 8px',
+                  borderRadius: 20,
+                  fontSize: 11,
+                }}>
                   {pendingMembers.length}
                 </span>
               )}
@@ -152,161 +318,184 @@ export default function AdminDashboard({
           ))}
         </aside>
 
-        <section className="admin-content">
-          <div className="welcome">
-            <h2>Welcome, Administrator!</h2>
-            <p>
-              {profile?.full_name || 'System Administrator'}
+        {/* MAIN CONTENT */}
+        <main className="jcs-main">
+          <div style={{ marginBottom: 25 }}>
+            <h2 style={{ margin: 0, fontSize: 25 }}>
+              {pageTitle[activePage]}
+            </h2>
+            <p style={{ color: '#7593a7', margin: '7px 0 0' }}>
+              Welcome back, {profile?.full_name || 'Administrator'}!
             </p>
           </div>
 
-          <h2 className="page-heading">
-            {pageTitles[activePage]}
-          </h2>
+          {message && (
+            <div style={{
+              background: '#e6f5ff',
+              color: '#176b9d',
+              padding: 13,
+              borderRadius: 9,
+              marginBottom: 18,
+            }}>
+              {message}
+            </div>
+          )}
 
+          {/* DASHBOARD */}
           {activePage === 'dashboard' && (
             <>
-              <section className="dashboard-grid">
-                <article className="dashboard-card">
-                  <h3>Total Members</h3>
-                  <h2>{stats.members ?? 0}</h2>
-                  <p>Approved members</p>
-                </article>
+              <div className="jcs-cards">
+                {[
+                  ['👥', 'Total Members', stats.members, 'Approved members'],
+                  ['💰', 'Total Savings', money(stats.savings), 'Current balances'],
+                  ['📥', 'Total Deposits', money(stats.deposits), 'Recorded deposits'],
+                  ['📤', 'Total Withdrawals', money(stats.withdrawals), 'Approved withdrawals'],
+                ].map((item) => (
+                  <div key={item[1]} style={cardStyle}>
+                    <div style={{ fontSize: 27 }}>{item[0]}</div>
+                    <p style={{ color: '#7795a9', fontSize: 13 }}>{item[1]}</p>
+                    <h2 style={{ fontSize: 23, margin: '8px 0' }}>
+                      {item[2] ?? 0}
+                    </h2>
+                    <small style={{ color: '#8ba7b8' }}>{item[3]}</small>
+                  </div>
+                ))}
+              </div>
 
-                <article className="dashboard-card">
-                  <h3>Total Savings</h3>
-                  <h2>{money(stats.savings)}</h2>
-                  <p>Current member balances</p>
-                </article>
-
-                <article className="dashboard-card">
-                  <h3>Total Deposits</h3>
-                  <h2>{money(stats.deposits)}</h2>
-                  <p>Recorded deposits</p>
-                </article>
-
-                <article className="dashboard-card">
-                  <h3>Total Withdrawals</h3>
-                  <h2>{money(stats.withdrawals)}</h2>
-                  <p>Approved withdrawals</p>
-                </article>
+              <section style={{ ...cardStyle, marginTop: 22 }}>
+                <h3 style={{ marginTop: 0 }}>Quick Actions</h3>
+                <div className="jcs-actions">
+                  {[
+                    ['✅', 'Membership Approval', 'approval'],
+                    ['💰', 'Add Deposit', 'deposit'],
+                    ['💸', 'Withdrawals', 'withdrawal'],
+                    ['📄', 'Transactions', 'transactions'],
+                  ].map((action) => (
+                    <button
+                      key={action[2]}
+                      className="jcs-action"
+                      onClick={() => navigate(action[2])}
+                    >
+                      <div style={{ fontSize: 25, marginBottom: 8 }}>
+                        {action[0]}
+                      </div>
+                      {action[1]}
+                    </button>
+                  ))}
+                </div>
               </section>
 
-              <section className="quick-actions">
-                <h2>Quick Actions</h2>
-                <div className="action-grid">
-                  <button onClick={() => setActivePage('approval')}>
-                    ✅ Membership Approval ({pendingMembers.length})
-                  </button>
-                  <button onClick={() => setActivePage('deposit')}>
-                    💰 Add Deposit
-                  </button>
-                  <button onClick={() => setActivePage('withdrawal')}>
-                    💸 Approve Withdrawal
-                  </button>
-                  <button onClick={() => setActivePage('transactions')}>
-                    📄 View Transactions
-                  </button>
-                </div>
+              <section style={{ ...cardStyle, marginTop: 22 }}>
+                <h3 style={{ marginTop: 0 }}>Recent Activities</h3>
+                <p style={{ color: '#8ba7b8', fontSize: 14 }}>
+                  Transaction history integration will appear here.
+                </p>
               </section>
             </>
           )}
 
+          {/* MEMBERSHIP APPROVAL */}
           {activePage === 'approval' && (
-            <section className="admin-panel">
-              <h2>New Member Applications</h2>
-              <p>Review and confirm new membership registrations.</p>
-
-              {message && (
-                <p className="admin-message">{message}</p>
-              )}
+            <section style={cardStyle}>
+              <h3>New Member Applications</h3>
+              <p style={{ color: '#7795a9' }}>
+                Review membership registrations.
+              </p>
 
               {pendingMembers.length === 0 ? (
-                <div className="empty-state">
-                  <h3>No Pending Applications</h3>
-                  <p>
-                    New member registrations will appear here.
-                  </p>
-                </div>
-              ) : (
-                <div className="approval-list">
-                  {pendingMembers.map((member) => (
-                    <article
-                      className="approval-card"
-                      key={member.id}
+                <p style={{ padding: 25, textAlign: 'center', color: '#8ba7b8' }}>
+                  No pending applications.
+                </p>
+              ) : pendingMembers.map((member) => (
+                <div className="jcs-member" key={member.id}>
+                  <div>
+                    <strong>{member.full_name || 'Unnamed Member'}</strong>
+                    <p style={{ margin: '5px 0', color: '#7795a9' }}>
+                      {member.email || 'No email'}
+                    </p>
+                    <span style={{ color: '#d18a22', fontSize: 12 }}>
+                      PENDING APPROVAL
+                    </span>
+                  </div>
+
+                  <div style={{ display: 'flex', gap: 8 }}>
+                    <button
+                      disabled={processingId === member.id}
+                      onClick={() => handleApproval(member, 'approve')}
+                      style={{
+                        ...buttonStyle,
+                        background: '#168bd2',
+                        color: 'white',
+                      }}
                     >
-                      <div className="approval-details">
-                        <h3>
-                          {member.full_name || 'Unnamed Member'}
-                        </h3>
+                      {processingId === member.id ? 'Processing...' : '✓ Approve'}
+                    </button>
 
-                        <p>{member.email || 'No email available'}</p>
-
-                        <p>
-                          Application ID: {member.id}
-                        </p>
-
-                        <span className="pending-label">
-                          PENDING APPROVAL
-                        </span>
-                      </div>
-
-                      <div className="approval-actions">
-                        <button
-                          className="approve-btn"
-                          disabled={processingId === member.id}
-                          onClick={() =>
-                            handleApproval(member, 'approve')
-                          }
-                        >
-                          {processingId === member.id
-                            ? 'Processing...'
-                            : '✓ Approve'}
-                        </button>
-
-                        <button
-                          className="reject-btn"
-                          disabled={processingId === member.id}
-                          onClick={() =>
-                            handleApproval(member, 'reject')
-                          }
-                        >
-                          ✕ Reject
-                        </button>
-                      </div>
-                    </article>
-                  ))}
+                    <button
+                      disabled={processingId === member.id}
+                      onClick={() => handleApproval(member, 'reject')}
+                      style={{
+                        ...buttonStyle,
+                        background: '#fff0f0',
+                        color: '#d34b4b',
+                      }}
+                    >
+                      ✕ Reject
+                    </button>
+                  </div>
                 </div>
-              )}
+              ))}
             </section>
           )}
 
+          {/* MEMBERS */}
+          {activePage === 'members' && (
+            <section style={cardStyle}>
+              <h3>Approved Members</h3>
+              {members.length === 0 ? (
+                <p>No approved members found.</p>
+              ) : members.map((member) => (
+                <div className="jcs-member" key={member.id}>
+                  <div>
+                    <strong>{member.full_name}</strong>
+                    <p style={{ color: '#7795a9' }}>{member.email}</p>
+                    <small>{member.account_number || 'No account number'}</small>
+                  </div>
+                  <span style={{ color: '#168b63', fontWeight: 'bold' }}>
+                    APPROVED
+                  </span>
+                </div>
+              ))}
+            </section>
+          )}
+
+          {/* ADD DEPOSIT */}
           {activePage === 'deposit' && (
-            <section className="admin-panel">
-              <h2>Record Member Deposit</h2>
-              <p>Select a member and enter the deposit amount.</p>
+            <section style={{ ...cardStyle, maxWidth: 650 }}>
+              <h3>Record Member Deposit</h3>
+              <p style={{ color: '#7795a9' }}>
+                Add savings to an approved member account.
+              </p>
 
               <form onSubmit={handleDeposit}>
                 <label>Choose Member</label>
-
                 <select
+                  className="jcs-input"
                   value={selectedMember}
                   onChange={(e) => setSelectedMember(e.target.value)}
                   required
                 >
                   <option value="">Select a member</option>
-
                   {members.map((member) => (
                     <option key={member.id} value={member.id}>
-                      {member.account_number || 'No Account Number'}
-                      {' - '}
-                      {member.full_name}
+                      {member.account_number || 'No Account Number'} - {member.full_name}
                     </option>
                   ))}
                 </select>
 
                 <label>Deposit Amount (PHP)</label>
                 <input
+                  className="jcs-input"
                   type="number"
                   min="0.01"
                   step="0.01"
@@ -316,27 +505,30 @@ export default function AdminDashboard({
                   required
                 />
 
-                <label>Description / Remarks</label>
+                <label>Remarks (Optional)</label>
                 <input
+                  className="jcs-input"
                   type="text"
-                  placeholder="Optional remarks"
+                  placeholder="Enter remarks"
                   value={description}
                   onChange={(e) => setDescription(e.target.value)}
                 />
 
-                <div className="deposit-preview">
-                  <span>Deposit Amount</span>
-                  <strong>{money(amount)}</strong>
-                </div>
-
-                {message && (
-                  <p className="admin-message">{message}</p>
-                )}
+                <h3 style={{ color: '#168bd2' }}>
+                  Deposit: {money(amount)}
+                </h3>
 
                 <button
                   type="submit"
-                  className="confirm-deposit-btn"
                   disabled={saving || !onAddDeposit}
+                  style={{
+                    ...buttonStyle,
+                    background: '#168bd2',
+                    color: 'white',
+                    width: '100%',
+                    marginTop: 10,
+                    opacity: saving || !onAddDeposit ? 0.6 : 1,
+                  }}
                 >
                   {saving ? 'Recording...' : 'Confirm Deposit'}
                 </button>
@@ -344,37 +536,17 @@ export default function AdminDashboard({
             </section>
           )}
 
-          {activePage === 'members' && (
-            <section className="admin-panel">
-              <h2>Approved Members</h2>
-
-              {members.length === 0 ? (
-                <p>No approved members found.</p>
-              ) : (
-                members.map((member) => (
-                  <article className="approval-card" key={member.id}>
-                    <div>
-                      <h3>{member.full_name}</h3>
-                      <p>{member.email}</p>
-                      <p>{member.account_number || 'No account number'}</p>
-                    </div>
-                    <span className="approved-label">APPROVED</span>
-                  </article>
-                ))
-              )}
-            </section>
-          )}
-
+          {/* OTHER SECTIONS */}
           {['withdrawal', 'transactions', 'reports'].includes(activePage) && (
-            <section className="admin-panel">
-              <h2>{pageTitles[activePage]}</h2>
-              <p>
+            <section style={cardStyle}>
+              <h3>{pageTitle[activePage]}</h3>
+              <p style={{ color: '#7795a9' }}>
                 This section still needs its Supabase database integration.
               </p>
             </section>
           )}
-        </section>
+        </main>
       </div>
-    </main>
+    </div>
   );
 }

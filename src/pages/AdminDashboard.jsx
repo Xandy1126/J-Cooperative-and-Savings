@@ -1,329 +1,359 @@
 
-import React, { useEffect, useState, useCallback } from 'react';
-import { supabase } from './supabaseClient.js';
-import { logoutUser } from './auth.js';
+import React, { useState } from 'react';
 
-import Login from './pages/Login.jsx';
-import Register from './pages/Register.jsx';
-import Dashboard from './pages/Dashboard.jsx';
-import AdminDashboard from './pages/AdminDashboard.jsx';
+export default function AdminDashboard({
+  profile,
+  stats = {},
+  members = [],
+  pendingMembers = [],
+  onApproveMember,
+  onRejectMember,
+  onAddDeposit,
+  onRefresh,
+  onLogout
+}) {
+  const [activePage, setActivePage] = useState('Dashboard');
+  const [selectedMember, setSelectedMember] = useState('');
+  const [amount, setAmount] = useState('');
+  const [notes, setNotes] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [message, setMessage] = useState('');
 
-export default function App() {
-  const [user, setUser] = useState(null);
-  const [profile, setProfile] = useState(null);
+  const money = value =>
+    Number(value || 0).toLocaleString('en-PH', {
+      style: 'currency',
+      currency: 'PHP'
+    });
 
-  const [members, setMembers] = useState([]);
-  const [pendingMembers, setPendingMembers] = useState([]);
-
-  const [stats, setStats] = useState({
-    members: 0,
-    savings: 0,
-    deposits: 0,
-    withdrawals: 0
-  });
-
-  const [page, setPage] = useState('login');
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState('');
-
-  // LOAD ADMIN DATA
-  const loadAdminData = useCallback(async () => {
-    const [pendingResult, membersResult] = await Promise.all([
-      supabase.rpc('admin_get_pending_members'),
-
-      supabase
-        .from('profiles')
-        .select('id, full_name, email, member_number, status, created_at')
-        .eq('role', 'member')
-        .eq('status', 'approved')
-        .order('created_at', { ascending: true })
-    ]);
-
-    if (pendingResult.error) {
-      throw pendingResult.error;
-    }
-
-    if (membersResult.error) {
-      throw membersResult.error;
-    }
-
-    const approvedMembers = (membersResult.data || []).map(member => ({
-      ...member,
-      account_number: member.member_number
-    }));
-
-    setPendingMembers(pendingResult.data || []);
-    setMembers(approvedMembers);
-
-    setStats(previous => ({
-      ...previous,
-      members: approvedMembers.length
-    }));
-
-    setError('');
-  }, []);
-
-  // APPROVE MEMBER
-  async function handleApproveMember(memberId) {
-    const { data, error } = await supabase.rpc(
-      'admin_approve_member',
-      { member_id: memberId }
-    );
-
-    if (error) {
-      throw error;
-    }
-
-    await loadAdminData();
-
-    return data;
-  }
-
-  // REJECT MEMBER
-  async function handleRejectMember(memberId) {
-    const { error } = await supabase.rpc(
-      'admin_reject_member',
-      { member_id: memberId }
-    );
-
-    if (error) {
-      throw error;
-    }
-
-    await loadAdminData();
-  }
-
-  // CHECK LOGIN SESSION
-  useEffect(() => {
-    let active = true;
-
-    async function initialize() {
-      try {
-        const { data, error } = await supabase.auth.getSession();
-
-        if (error) {
-          throw error;
-        }
-
-        if (active) {
-          setUser(data.session?.user || null);
-        }
-      } catch (err) {
-        if (active) {
-          setError(err.message);
-        }
-      } finally {
-        if (active) {
-          setLoading(false);
-        }
-      }
-    }
-
-    initialize();
-
-    const { data: authListener } =
-      supabase.auth.onAuthStateChange((_event, session) => {
-        if (!active) return;
-
-        setUser(session?.user || null);
-
-        if (!session?.user) {
-          setProfile(null);
-          setMembers([]);
-          setPendingMembers([]);
-          setPage('login');
-          setError('');
-        }
-      });
-
-    return () => {
-      active = false;
-      authListener.subscription.unsubscribe();
-    };
-  }, []);
-
-  // FETCH PROFILE
-  useEffect(() => {
-    let active = true;
-
-    async function fetchProfile() {
-      if (!user) {
-        setProfile(null);
-        return;
-      }
-
-      try {
-        const { data, error } = await supabase
-          .from('profiles')
-          .select('*')
-          .eq('id', user.id)
-          .single();
-
-        if (error) {
-          throw error;
-        }
-
-        if (active) {
-          setProfile(data);
-          setError('');
-        }
-      } catch (err) {
-        if (active) {
-          setProfile(null);
-          setError(err.message);
-        }
-      }
-    }
-
-    fetchProfile();
-
-    return () => {
-      active = false;
-    };
-  }, [user]);
-
-  // LOAD ADMIN DASHBOARD
-  useEffect(() => {
-    if (profile?.role !== 'admin') return;
-
-    let active = true;
-
-    async function refreshAdminData() {
-      try {
-        await loadAdminData();
-      } catch (err) {
-        console.error('Admin dashboard error:', err);
-
-        if (active) {
-          setError(err.message);
-        }
-      }
-    }
-
-    refreshAdminData();
-
-    return () => {
-      active = false;
-    };
-  }, [profile, loadAdminData]);
-
-  // LOGOUT
-  async function handleLogout() {
+  async function approve(id) {
     try {
-      await logoutUser();
-      setUser(null);
-      setProfile(null);
-      setPage('login');
+      await onApproveMember(id);
+      setMessage('Membership approved successfully!');
     } catch (err) {
-      setError(err.message);
+      setMessage('Approval error: ' + err.message);
     }
   }
 
-  // LOADING
-  if (loading) {
-    return <div className="loading">Loading J Cooperative...</div>;
+  async function reject(id) {
+    if (!window.confirm('Reject this membership application?')) return;
+
+    try {
+      await onRejectMember(id);
+      setMessage('Membership rejected.');
+    } catch (err) {
+      setMessage('Rejection error: ' + err.message);
+    }
   }
 
-  // LOGIN AND REGISTER
-  if (!user) {
-    if (page === 'register') {
-      return (
-        <Register
-          onBack={() => setPage('login')}
-        />
+  async function submitDeposit(e) {
+    e.preventDefault();
+    setMessage('');
+
+    if (!selectedMember) {
+      setMessage('Please select a member.');
+      return;
+    }
+
+    if (!amount || Number(amount) <= 0) {
+      setMessage('Please enter a valid amount.');
+      return;
+    }
+
+    setSaving(true);
+
+    try {
+      const balance = await onAddDeposit(
+        selectedMember,
+        amount,
+        notes
       );
+
+      setMessage(
+        'Deposit successful! New balance: ' + money(balance)
+      );
+
+      setAmount('');
+      setNotes('');
+      setSelectedMember('');
+
+      if (onRefresh) await onRefresh();
+    } catch (err) {
+      setMessage('Deposit failed: ' + err.message);
+    } finally {
+      setSaving(false);
     }
-
-    return (
-      <Login
-        onLogin={loggedInUser => {
-          const authenticatedUser =
-            loggedInUser?.user ||
-            loggedInUser?.session?.user ||
-            loggedInUser;
-
-          setUser(authenticatedUser);
-          setPage('dashboard');
-        }}
-        onRegister={() => setPage('register')}
-      />
-    );
   }
 
-  // PROFILE ERROR
-  if (error && !profile) {
-    return (
-      <div className="loading">
-        <h2>Unable to load profile</h2>
-        <p>{error}</p>
-        <button onClick={handleLogout}>Logout</button>
-      </div>
-    );
-  }
+  const menu = [
+    'Dashboard',
+    'Membership Approval',
+    'Members',
+    'Add Deposit'
+  ];
 
-  // PROFILE LOADING
-  if (!profile) {
-    return (
-      <div className="loading">
-        Loading your profile...
-      </div>
-    );
-  }
+  const styles = {
+    app: {
+      minHeight: '100vh',
+      background: '#f0f7ff',
+      fontFamily: 'Arial, sans-serif',
+      color: '#18324d'
+    },
+    header: {
+      background: '#0879c9',
+      color: 'white',
+      padding: '20px',
+      display: 'flex',
+      justifyContent: 'space-between',
+      alignItems: 'center',
+      flexWrap: 'wrap',
+      gap: '10px'
+    },
+    layout: {
+      display: 'flex',
+      minHeight: 'calc(100vh - 75px)',
+      flexWrap: 'wrap'
+    },
+    sidebar: {
+      width: '230px',
+      background: '#ffffff',
+      padding: '18px',
+      boxSizing: 'border-box'
+    },
+    content: {
+      flex: 1,
+      minWidth: '280px',
+      padding: '25px',
+      boxSizing: 'border-box'
+    },
+    menuButton: {
+      display: 'block',
+      width: '100%',
+      padding: '13px',
+      marginBottom: '8px',
+      border: 'none',
+      borderRadius: '8px',
+      textAlign: 'left',
+      cursor: 'pointer',
+      fontWeight: 'bold'
+    },
+    card: {
+      background: 'white',
+      borderRadius: '12px',
+      padding: '20px',
+      boxShadow: '0 2px 10px #00000010',
+      marginBottom: '16px'
+    },
+    button: {
+      padding: '10px 15px',
+      border: 'none',
+      borderRadius: '7px',
+      background: '#0879c9',
+      color: 'white',
+      cursor: 'pointer',
+      margin: '3px'
+    },
+    input: {
+      width: '100%',
+      padding: '12px',
+      border: '1px solid #cbd5e1',
+      borderRadius: '7px',
+      boxSizing: 'border-box',
+      marginTop: '7px',
+      marginBottom: '15px'
+    }
+  };
 
-  // ADMIN DASHBOARD
-  if (profile.role === 'admin') {
-    return (
-      <AdminDashboard
-        profile={profile}
-        stats={stats}
-        members={members}
-        pendingMembers={pendingMembers}
-        onApproveMember={handleApproveMember}
-        onRejectMember={handleRejectMember}
-        onLogout={handleLogout}
-      />
-    );
-  }
-
-  // PENDING MEMBERSHIP
-  if (profile.status === 'pending') {
-    return (
-      <div className="loading">
-        <h2>Membership Pending</h2>
-        <p>Your application is waiting for Admin approval.</p>
-        <button onClick={handleLogout}>Logout</button>
-      </div>
-    );
-  }
-
-  // REJECTED MEMBERSHIP
-  if (profile.status === 'rejected') {
-    return (
-      <div className="loading">
-        <h2>Membership Rejected</h2>
-        <p>Please contact the administrator.</p>
-        <button onClick={handleLogout}>Logout</button>
-      </div>
-    );
-  }
-
-  // UNAPPROVED MEMBERSHIP
-  if (profile.status !== 'approved') {
-    return (
-      <div className="loading">
-        <h2>Membership Unavailable</h2>
-        <p>Your membership status is not yet approved.</p>
-        <button onClick={handleLogout}>Logout</button>
-      </div>
-    );
-  }
-
-  // MEMBER DASHBOARD
   return (
-    <Dashboard
-      user={user}
-      profile={profile}
-      onLogout={handleLogout}
-    />
+    <div style={styles.app}>
+      <header style={styles.header}>
+        <div>
+          <h2 style={{ margin: 0 }}>J-Cooperative and Savings</h2>
+          <small>Administrator: {profile?.full_name || profile?.email}</small>
+        </div>
+        <button
+          style={{ ...styles.button, background: '#ffffff', color: '#0879c9' }}
+          onClick={onLogout}
+        >
+          Logout
+        </button>
+      </header>
+
+      <div style={styles.layout}>
+        <aside style={styles.sidebar}>
+          {menu.map(item => (
+            <button
+              key={item}
+              style={{
+                ...styles.menuButton,
+                background: activePage === item ? '#dbeeff' : '#ffffff',
+                color: '#0879c9'
+              }}
+              onClick={() => {
+                setActivePage(item);
+                setMessage('');
+              }}
+            >
+              {item}
+            </button>
+          ))}
+        </aside>
+
+        <main style={styles.content}>
+          {message && (
+            <div style={styles.card}>
+              {message}
+            </div>
+          )}
+
+          {activePage === 'Dashboard' && (
+            <>
+              <h2>Admin Dashboard</h2>
+              <div style={{
+                display: 'grid',
+                gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))',
+                gap: '15px'
+              }}>
+                <div style={styles.card}>
+                  <h3>Total Members</h3>
+                  <h1>{members.length}</h1>
+                </div>
+                <div style={styles.card}>
+                  <h3>Pending Applications</h3>
+                  <h1>{pendingMembers.length}</h1>
+                </div>
+                <div style={styles.card}>
+                  <h3>Total Savings</h3>
+                  <h1>{money(stats.savings)}</h1>
+                </div>
+              </div>
+              <button style={styles.button} onClick={onRefresh}>
+                Refresh Dashboard
+              </button>
+            </>
+          )}
+
+          {activePage === 'Membership Approval' && (
+            <>
+              <h2>Membership Approval</h2>
+              {pendingMembers.length === 0 ? (
+                <div style={styles.card}>No pending applications.</div>
+              ) : pendingMembers.map(member => (
+                <div style={styles.card} key={member.id}>
+                  <h3>{member.full_name}</h3>
+                  <p>{member.email}</p>
+                  <p>{member.phone}</p>
+                  <button
+                    style={styles.button}
+                    onClick={() => approve(member.id)}
+                  >
+                    Approve
+                  </button>
+                  <button
+                    style={{ ...styles.button, background: '#dc2626' }}
+                    onClick={() => reject(member.id)}
+                  >
+                    Reject
+                  </button>
+                </div>
+              ))}
+            </>
+          )}
+
+          {activePage === 'Members' && (
+            <>
+              <h2>Approved Members ({members.length})</h2>
+              {members.length === 0 ? (
+                <div style={styles.card}>
+                  No approved members found.
+                </div>
+              ) : (
+                <div style={styles.card}>
+                  <div style={{ overflowX: 'auto' }}>
+                    <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                      <thead>
+                        <tr>
+                          <th align="left">Member</th>
+                          <th align="left">Email</th>
+                          <th align="left">Account Number</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {members.map(member => (
+                          <tr key={member.id}>
+                            <td style={{ padding: '12px 5px' }}>
+                              {member.full_name}
+                            </td>
+                            <td>{member.email}</td>
+                            <td>{member.member_number || 'Pending number'}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
+              <button style={styles.button} onClick={onRefresh}>
+                Refresh Members
+              </button>
+            </>
+          )}
+
+          {activePage === 'Add Deposit' && (
+            <>
+              <h2>Add Member Deposit</h2>
+              <form style={styles.card} onSubmit={submitDeposit}>
+                <label>Select Approved Member</label>
+                <select
+                  style={styles.input}
+                  value={selectedMember}
+                  onChange={e => setSelectedMember(e.target.value)}
+                  required
+                >
+                  <option value="">-- Choose Member --</option>
+                  {members.map(member => (
+                    <option key={member.id} value={member.id}>
+                      {member.full_name} - {member.member_number}
+                    </option>
+                  ))}
+                </select>
+
+                {members.length === 0 && (
+                  <p>No approved members available. Approve a member first.</p>
+                )}
+
+                <label>Deposit Amount (₱)</label>
+                <input
+                  style={styles.input}
+                  type="number"
+                  min="0.01"
+                  step="0.01"
+                  placeholder="Enter amount"
+                  value={amount}
+                  onChange={e => setAmount(e.target.value)}
+                  required
+                />
+
+                <label>Notes (optional)</label>
+                <input
+                  style={styles.input}
+                  type="text"
+                  placeholder="Deposit description"
+                  value={notes}
+                  onChange={e => setNotes(e.target.value)}
+                />
+
+                <button
+                  style={styles.button}
+                  type="submit"
+                  disabled={saving || members.length === 0}
+                >
+                  {saving ? 'Saving...' : 'Add Deposit'}
+                </button>
+              </form>
+            </>
+          )}
+        </main>
+      </div>
+    </div>
   );
 }

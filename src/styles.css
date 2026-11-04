@@ -11,24 +11,162 @@ body {
 }
 
 button {
-  transition: 0.2s ease;
+  cursor: pointer;
+  border: none;
+  border-radius: 8px;
+  padding: 12px 18px;
+  background: #0284c7;
+  color: white;
+  font-weight: bold;
+  transition: 0.2s;
 }
 
 button:hover {
-  opacity: 0.85;
-  transform: translateY(-2px);
+  background: #0369a1;
+}
+
+button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
 }
 
 input {
-  font: inherit;
+  width: 100%;
+  padding: 12px;
+  margin: 8px 0 18px;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  outline-color: #0284c7;
+}
+
+label {
+  display: block;
+  font-weight: bold;
+  font-size: 14px;
+}
+
+.auth-page {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  background: linear-gradient(135deg, #e0f2fe, #f0f9ff);
+}
+
+.auth-card {
+  width: 100%;
+  max-width: 430px;
+  background: white;
+  padding: 32px;
+  border-radius: 16px;
+  box-shadow: 0 8px 30px rgba(0,0,0,.08);
+}
+
+.auth-card h1 {
+  color: #0284c7;
+  margin-bottom: 20px;
+}
+
+.auth-card h2 {
+  margin-bottom: 8px;
+}
+
+.auth-card p {
+  margin: 12px 0;
+  color: #64748b;
+}
+
+.auth-card button[type="submit"] {
+  width: 100%;
+}
+
+.error {
+  color: #dc2626 !important;
+}
+
+.dashboard {
+  min-height: 100vh;
+}
+
+.dashboard header {
+  background: #0284c7;
+  color: white;
+  padding: 22px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+}
+
+.dashboard header button {
+  background: white;
+  color: #0284c7;
+}
+
+.welcome {
+  padding: 30px;
+}
+
+.welcome p {
+  margin-top: 8px;
+  color: #64748b;
+}
+
+.dashboard-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+  gap: 20px;
+  padding: 20px 30px;
+}
+
+.dashboard-card {
+  background: white;
+  border-radius: 14px;
+  padding: 24px;
+  box-shadow: 0 4px 16px rgba(0,0,0,.05);
+}
+
+.dashboard-card h3 {
+  color: #64748b;
+  margin-bottom: 18px;
+}
+
+.dashboard-card h2 {
+  color: #0284c7;
+  font-size: 28px;
+  margin-bottom: 8px;
+}
+
+.dashboard-card p {
+  color: #64748b;
+}
+
+.loading {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  padding: 24px;
+  gap: 15px;
 }
 
 @media (max-width: 600px) {
-  main {
-    margin: 20px auto !important;
+  .dashboard header {
+    flex-direction: column;
+    align-items: flex-start;
   }
 
-  button {
-    width: 100%;
+  .welcome {
+    padding: 22px;
+  }
+
+  .dashboard-grid {
+    padding: 15px;
+  }
+
+  .auth-card {
+    padding: 24px;
   }
 }

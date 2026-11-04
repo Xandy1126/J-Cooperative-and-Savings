@@ -1,8 +1,9 @@
-UPDATE public.profiles
-SET role = 'admin'
-WHERE email = 'xdorate@gmail.com';
+import { createClient } from '@supabase/supabase-js';
 
--- Verify Admin account
-SELECT id, email, role
-FROM public.profiles
-WHERE email = 'xdorate@gmail.com';
+const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+const supabaseKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
+
+export const supabase = createClient(
+  supabaseUrl,
+  supabaseKey
+);

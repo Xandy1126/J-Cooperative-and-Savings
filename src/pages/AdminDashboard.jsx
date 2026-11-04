@@ -6,13 +6,17 @@ export default function AdminDashboard({
   onLogout,
   stats = {},
   members = [],
+  pendingMembers = [],
   onAddDeposit,
+  onApproveMember,
+  onRejectMember,
 }) {
   const [activePage, setActivePage] = useState('dashboard');
   const [selectedMember, setSelectedMember] = useState('');
   const [amount, setAmount] = useState('');
   const [description, setDescription] = useState('');
   const [saving, setSaving] = useState(false);
+  const [processingId, setProcessingId] = useState(null);
   const [message, setMessage] = useState('');
 
   const money = (value) =>
@@ -41,7 +45,45 @@ export default function AdminDashboard({
     reports: 'Cash Flow Reports',
   };
 
-  const handleDeposit = async (e) => {
+  async function handleApproval(member, action) {
+    setMessage('');
+
+    const callback =
+      action === 'approve' ? onApproveMember : onRejectMember;
+
+    if (!callback) {
+      setMessage(
+        'Membership approval is not yet connected to Supabase. Please connect the Admin functions in App.jsx.'
+      );
+      return;
+    }
+
+    const confirmed = window.confirm(
+      action === 'approve'
+        ? `Approve membership of ${member.full_name || member.email}?`
+        : `Reject membership of ${member.full_name || member.email}?`
+    );
+
+    if (!confirmed) return;
+
+    try {
+      setProcessingId(member.id);
+
+      await callback(member.id);
+
+      setMessage(
+        action === 'approve'
+          ? 'Member successfully approved!'
+          : 'Membership application rejected.'
+      );
+    } catch (error) {
+      setMessage(error.message || 'Unable to process membership.');
+    } finally {
+      setProcessingId(null);
+    }
+  }
+
+  async function handleDeposit(e) {
     e.preventDefault();
     setMessage('');
 
@@ -51,7 +93,7 @@ export default function AdminDashboard({
     }
 
     if (!onAddDeposit) {
-      setMessage('Deposit is not yet connected to the database.');
+      setMessage('Deposit is not yet connected to Supabase.');
       return;
     }
 
@@ -73,7 +115,7 @@ export default function AdminDashboard({
     } finally {
       setSaving(false);
     }
-  };
+  }
 
   return (
     <main className="admin-dashboard">
@@ -101,15 +143,18 @@ export default function AdminDashboard({
             >
               <span>{item.icon}</span>
               {item.label}
+              {item.id === 'approval' && pendingMembers.length > 0 && (
+                <span className="pending-count">
+                  {pendingMembers.length}
+                </span>
+              )}
             </button>
           ))}
         </aside>
 
         <section className="admin-content">
           <div className="welcome">
-            <h2>
-              Welcome, Administrator!
-            </h2>
+            <h2>Welcome, Administrator!</h2>
             <p>
               {profile?.full_name || 'System Administrator'}
             </p>
@@ -125,7 +170,7 @@ export default function AdminDashboard({
                 <article className="dashboard-card">
                   <h3>Total Members</h3>
                   <h2>{stats.members ?? 0}</h2>
-                  <p>Registered members</p>
+                  <p>Approved members</p>
                 </article>
 
                 <article className="dashboard-card">
@@ -151,7 +196,7 @@ export default function AdminDashboard({
                 <h2>Quick Actions</h2>
                 <div className="action-grid">
                   <button onClick={() => setActivePage('approval')}>
-                    ✅ Membership Approval
+                    ✅ Membership Approval ({pendingMembers.length})
                   </button>
                   <button onClick={() => setActivePage('deposit')}>
                     💰 Add Deposit
@@ -167,19 +212,90 @@ export default function AdminDashboard({
             </>
           )}
 
+          {activePage === 'approval' && (
+            <section className="admin-panel">
+              <h2>New Member Applications</h2>
+              <p>Review and confirm new membership registrations.</p>
+
+              {message && (
+                <p className="admin-message">{message}</p>
+              )}
+
+              {pendingMembers.length === 0 ? (
+                <div className="empty-state">
+                  <h3>No Pending Applications</h3>
+                  <p>
+                    New member registrations will appear here.
+                  </p>
+                </div>
+              ) : (
+                <div className="approval-list">
+                  {pendingMembers.map((member) => (
+                    <article
+                      className="approval-card"
+                      key={member.id}
+                    >
+                      <div className="approval-details">
+                        <h3>
+                          {member.full_name || 'Unnamed Member'}
+                        </h3>
+
+                        <p>{member.email || 'No email available'}</p>
+
+                        <p>
+                          Application ID: {member.id}
+                        </p>
+
+                        <span className="pending-label">
+                          PENDING APPROVAL
+                        </span>
+                      </div>
+
+                      <div className="approval-actions">
+                        <button
+                          className="approve-btn"
+                          disabled={processingId === member.id}
+                          onClick={() =>
+                            handleApproval(member, 'approve')
+                          }
+                        >
+                          {processingId === member.id
+                            ? 'Processing...'
+                            : '✓ Approve'}
+                        </button>
+
+                        <button
+                          className="reject-btn"
+                          disabled={processingId === member.id}
+                          onClick={() =>
+                            handleApproval(member, 'reject')
+                          }
+                        >
+                          ✕ Reject
+                        </button>
+                      </div>
+                    </article>
+                  ))}
+                </div>
+              )}
+            </section>
+          )}
+
           {activePage === 'deposit' && (
             <section className="admin-panel">
               <h2>Record Member Deposit</h2>
-              <p>Select the member and enter the deposit amount.</p>
+              <p>Select a member and enter the deposit amount.</p>
 
               <form onSubmit={handleDeposit}>
                 <label>Choose Member</label>
+
                 <select
                   value={selectedMember}
                   onChange={(e) => setSelectedMember(e.target.value)}
                   required
                 >
                   <option value="">Select a member</option>
+
                   {members.map((member) => (
                     <option key={member.id} value={member.id}>
                       {member.account_number || 'No Account Number'}
@@ -228,15 +344,35 @@ export default function AdminDashboard({
             </section>
           )}
 
-          {activePage !== 'dashboard' &&
-            activePage !== 'deposit' && (
-              <section className="admin-panel">
-                <h2>{pageTitles[activePage]}</h2>
-                <p>
-                  This section is ready for its database integration.
-                </p>
-              </section>
-            )}
+          {activePage === 'members' && (
+            <section className="admin-panel">
+              <h2>Approved Members</h2>
+
+              {members.length === 0 ? (
+                <p>No approved members found.</p>
+              ) : (
+                members.map((member) => (
+                  <article className="approval-card" key={member.id}>
+                    <div>
+                      <h3>{member.full_name}</h3>
+                      <p>{member.email}</p>
+                      <p>{member.account_number || 'No account number'}</p>
+                    </div>
+                    <span className="approved-label">APPROVED</span>
+                  </article>
+                ))
+              )}
+            </section>
+          )}
+
+          {['withdrawal', 'transactions', 'reports'].includes(activePage) && (
+            <section className="admin-panel">
+              <h2>{pageTitles[activePage]}</h2>
+              <p>
+                This section still needs its Supabase database integration.
+              </p>
+            </section>
+          )}
         </section>
       </div>
     </main>

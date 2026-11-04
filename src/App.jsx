@@ -1,5 +1,4 @@
-
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import { supabase } from './supabaseClient.js';
 import { logoutUser } from './auth.js';
 
@@ -11,138 +10,35 @@ import AdminDashboard from './pages/AdminDashboard.jsx';
 export default function App() {
   const [user, setUser] = useState(null);
   const [profile, setProfile] = useState(null);
-
-  const [members, setMembers] = useState([]);
   const [pendingMembers, setPendingMembers] = useState([]);
 
   const [page, setPage] = useState('login');
   const [loading, setLoading] = useState(true);
-  const [refreshing, setRefreshing] = useState(false);
+  const [profileLoading, setProfileLoading] = useState(false);
+  const [pendingLoading, setPendingLoading] = useState(false);
+
   const [error, setError] = useState('');
+  const [pendingError, setPendingError] = useState('');
 
-  // LOAD USER PROFILE
-  async function loadProfile(currentUser) {
-    if (!currentUser) return null;
-
-    const { data, error } = await supabase
-      .from('profiles')
-      .select('*')
-      .eq('id', currentUser.id)
-      .single();
-
-    if (error) {
-      console.error('Profile error:', error);
-      setError(error.message);
-      return null;
-    }
-
-    setProfile(data);
-    setError('');
-
-    return data;
-  }
-
-  // LOAD ALL APPROVED MEMBERS
-  async function loadMembers() {
-    const { data, error } = await supabase
-      .from('profiles')
-      .select('*')
-      .eq('role', 'member')
-      .eq('status', 'approved')
-      .order('created_at', { ascending: true });
-
-    if (error) {
-      console.error('Members loading error:', error);
-      alert('Unable to load members: ' + error.message);
-      return;
-    }
-
-    // Match the field expected by AdminDashboard
-    const formattedMembers = (data || []).map(member => ({
-      ...member,
-      account_number: member.member_number || 'Not assigned'
-    }));
-
-    setMembers(formattedMembers);
-  }
-
-  // LOAD PENDING APPLICATIONS
-  async function loadPendingMembers() {
-    const { data, error } = await supabase.rpc(
-      'admin_get_pending_members'
-    );
-
-    if (error) {
-      console.error('Pending members error:', error);
-      alert('Unable to load pending applications: ' + error.message);
-      return;
-    }
-
-    setPendingMembers(data || []);
-  }
-
-  // REFRESH ADMIN DATA
-  async function refreshAdminData() {
-    await Promise.all([
-      loadMembers(),
-      loadPendingMembers()
-    ]);
-  }
-
-  // APPROVE MEMBER
-  async function handleApproveMember(memberId) {
-    const { data, error } = await supabase.rpc(
-      'admin_approve_member',
-      { member_id: memberId }
-    );
-
-    if (error) {
-      alert('Approval failed: ' + error.message);
-      throw error;
-    }
-
-    await refreshAdminData();
-
-    alert(
-      'Member successfully approved!\nMember Number: ' + data
-    );
-
-    return data;
-  }
-
-  // REJECT MEMBER
-  async function handleRejectMember(memberId) {
-    const { error } = await supabase.rpc(
-      'admin_reject_member',
-      { member_id: memberId }
-    );
-
-    if (error) {
-      alert('Rejection failed: ' + error.message);
-      throw error;
-    }
-
-    await refreshAdminData();
-
-    alert('Membership application rejected successfully.');
-  }
-
-  // MANUAL REFRESH
-  async function refreshProfile() {
-    if (!user) return;
-
-    setRefreshing(true);
-
-    try {
-      await loadProfile(user);
-    } finally {
-      setRefreshing(false);
-    }
-  }
-
-  // INITIALIZE SESSION
+  // Listen for login and logout
   useEffect(() => {
     let mounted = true;
+
+    const {
+      data: { subscription }
+    } = supabase.auth.onAuthStateChange((_event, session) => {
+      if (!mounted) return;
+
+      setUser(session?.user || null);
+
+      if (!session?.user) {
+        setProfile(null);
+        setPendingMembers([]);
+        setError('');
+        setPendingError('');
+        setPage('login');
+      }
+    });
 
     async function initialize() {
       const { data, error } = await supabase.auth.getSession();
@@ -159,113 +55,144 @@ export default function App() {
 
     initialize();
 
-    const { data: listener } = supabase.auth.onAuthStateChange(
-      (_event, session) => {
-        if (!mounted) return;
-
-        const currentUser = session?.user || null;
-
-        setUser(currentUser);
-
-        if (!currentUser) {
-          setProfile(null);
-          setMembers([]);
-          setPendingMembers([]);
-          setError('');
-          setPage('login');
-        }
-      }
-    );
-
     return () => {
       mounted = false;
-      listener.subscription.unsubscribe();
+      subscription.unsubscribe();
     };
   }, []);
 
-  // LOAD PROFILE AFTER LOGIN
+  // Load logged-in user's profile
   useEffect(() => {
-    let active = true;
+    let mounted = true;
 
-    async function syncProfile() {
+    async function fetchProfile() {
       if (!user) {
         setProfile(null);
+        setProfileLoading(false);
         return;
       }
+
+      setProfileLoading(true);
+      setError('');
 
       const { data, error } = await supabase
         .from('profiles')
         .select('*')
         .eq('id', user.id)
-        .single();
+        .maybeSingle();
 
-      if (!active) return;
+      if (!mounted) return;
 
       if (error) {
-        console.error('Profile loading error:', error);
         setError(error.message);
         setProfile(null);
-        return;
+      } else if (!data) {
+        setError('Profile not found. Please contact the administrator.');
+        setProfile(null);
+      } else {
+        setProfile(data);
+        setError('');
       }
 
-      setProfile(data);
-      setError('');
+      setProfileLoading(false);
     }
 
-    syncProfile();
+    fetchProfile();
 
     return () => {
-      active = false;
+      mounted = false;
     };
   }, [user]);
 
-  // LOAD ADMIN MEMBERS AND APPLICATIONS
-  useEffect(() => {
-    if (profile?.role !== 'admin') {
-      setMembers([]);
+  // Get pending membership applications
+  const loadPendingMembers = useCallback(async () => {
+    setPendingLoading(true);
+    setPendingError('');
+
+    const { data, error } = await supabase.rpc(
+      'admin_get_pending_members'
+    );
+
+    if (error) {
+      console.error('Pending members error:', error);
+      setPendingError(error.message);
       setPendingMembers([]);
-      return;
+    } else {
+      setPendingMembers(data || []);
     }
 
-    refreshAdminData();
+    setPendingLoading(false);
+  }, []);
 
-    // Refresh the member list every 15 seconds
-    const interval = window.setInterval(() => {
-      loadMembers();
-      loadPendingMembers();
-    }, 15000);
-
-    return () => window.clearInterval(interval);
-  }, [profile?.id, profile?.role]);
-
-  // REFRESH PENDING MEMBER STATUS
+  // Automatically load applications when Admin logs in
   useEffect(() => {
-    if (
-      !user ||
-      profile?.role !== 'member' ||
-      profile?.status !== 'pending'
-    ) {
+    if (profile?.role === 'admin') {
+      loadPendingMembers();
+    } else {
+      setPendingMembers([]);
+    }
+  }, [profile, loadPendingMembers]);
+
+  // Approve member
+  async function handleApproveMember(memberId) {
+    const confirmed = window.confirm(
+      'Are you sure you want to approve this membership application?'
+    );
+
+    if (!confirmed) return;
+
+    const { data, error } = await supabase.rpc(
+      'admin_approve_member',
+      {
+        member_id: memberId
+      }
+    );
+
+    if (error) {
+      alert('Approval failed: ' + error.message);
       return;
     }
 
-    const interval = window.setInterval(() => {
-      loadProfile(user);
-    }, 10000);
+    alert('Member approved successfully! Account Number: ' + data);
 
-    return () => window.clearInterval(interval);
-  }, [user, profile?.role, profile?.status]);
+    await loadPendingMembers();
+  }
 
-  // LOGOUT
+  // Reject member
+  async function handleRejectMember(memberId) {
+    const confirmed = window.confirm(
+      'Are you sure you want to reject this membership application?'
+    );
+
+    if (!confirmed) return;
+
+    const { error } = await supabase.rpc(
+      'admin_reject_member',
+      {
+        member_id: memberId
+      }
+    );
+
+    if (error) {
+      alert('Rejection failed: ' + error.message);
+      return;
+    }
+
+    alert('Membership application rejected.');
+
+    await loadPendingMembers();
+  }
+
+  // Logout
   async function handleLogout() {
     try {
       await logoutUser();
-    } catch (err) {
-      alert('Logout failed: ' + err.message);
+    } catch (error) {
+      alert('Logout failed: ' + error.message);
     }
   }
 
-  // LOADING
-  if (loading) {
+  if (loading || profileLoading) {
     return (
       <div className="loading">
         Loading J Cooperative...
@@ -273,10 +200,14 @@ export default function App() {
     );
   }
 
-  // LOGIN AND REGISTER
+  // Login and registration pages
   if (!user) {
     if (page === 'register') {
-      return <Register onBack={() => setPage('login')} />;
+      return (
+        <Register
+          onBack={() => setPage('login')}
+        />
+      );
     }
 
     return (
@@ -290,17 +221,11 @@ export default function App() {
     );
   }
 
-  // PROFILE ERROR
-  if (error && !profile) {
+  // Profile loading error
+  if (error) {
     return (
       <div className="loading">
-        <h2>Unable to Load Profile</h2>
         <p>{error}</p>
-
-        <button onClick={refreshProfile}>
-          Try Again
-        </button>
-
         <button onClick={handleLogout}>
           Logout
         </button>
@@ -311,52 +236,53 @@ export default function App() {
   if (!profile) {
     return (
       <div className="loading">
-        Loading your profile...
+        Profile not found.
+        <button onClick={handleLogout}>
+          Logout
+        </button>
       </div>
     );
   }
 
-  // ADMIN DASHBOARD
+  // Admin Dashboard
   if (profile.role === 'admin') {
     return (
-      <AdminDashboard
-        profile={profile}
-        members={members}
-        pendingMembers={pendingMembers}
-        stats={{
-          members: members.length,
-          savings: 0,
-          deposits: 0,
-          withdrawals: 0
-        }}
-        onApproveMember={handleApproveMember}
-        onRejectMember={handleRejectMember}
-        onLogout={handleLogout}
-      />
+      <>
+        {pendingError && (
+          <div
+            style={{
+              padding: '12px',
+              margin: '12px',
+              background: '#fee2e2',
+              color: '#991b1b',
+              borderRadius: '8px'
+            }}
+          >
+            Unable to load pending applications: {pendingError}
+          </div>
+        )}
+
+        <AdminDashboard
+          profile={profile}
+          onLogout={handleLogout}
+          pendingMembers={pendingMembers}
+          onApproveMember={handleApproveMember}
+          onRejectMember={handleRejectMember}
+          pendingLoading={pendingLoading}
+        />
+      </>
     );
   }
 
-  // PENDING MEMBERSHIP
+  // Pending Member
   if (profile.status === 'pending') {
     return (
       <div className="loading">
-        <h2>Membership Pending</h2>
-
+        <h2>Membership Application Pending</h2>
         <p>
-          Hello, {profile.full_name || 'Member'}!
+          Your registration has been received.
+          Please wait for the administrator to approve your membership.
         </p>
-
-        <p>
-          Your application is waiting for Admin approval.
-        </p>
-
-        <button
-          onClick={refreshProfile}
-          disabled={refreshing}
-        >
-          {refreshing ? 'Checking...' : 'Refresh Status'}
-        </button>
-
         <button onClick={handleLogout}>
           Logout
         </button>
@@ -364,14 +290,15 @@ export default function App() {
     );
   }
 
-  // REJECTED MEMBERSHIP
+  // Rejected Member
   if (profile.status === 'rejected') {
     return (
       <div className="loading">
-        <h2>Membership Rejected</h2>
-
-        <p>Please contact the administrator.</p>
-
+        <h2>Membership Application Rejected</h2>
+        <p>
+          Your membership application was not approved.
+          Please contact the administrator.
+        </p>
         <button onClick={handleLogout}>
           Logout
         </button>
@@ -379,21 +306,7 @@ export default function App() {
     );
   }
 
-  // ONLY APPROVED MEMBERS
-  if (profile.status !== 'approved') {
-    return (
-      <div className="loading">
-        <h2>Membership Status Unavailable</h2>
-        <p>Please contact the administrator.</p>
-
-        <button onClick={handleLogout}>
-          Logout
-        </button>
-      </div>
-    );
-  }
-
-  // MEMBER DASHBOARD
+  // Approved Member Dashboard
   return (
     <Dashboard
       user={user}

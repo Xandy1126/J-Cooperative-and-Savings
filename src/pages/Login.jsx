@@ -1,9 +1,12 @@
+
 import React, { useState } from 'react';
 import { loginUser } from '../auth.js';
+import { supabase } from '../supabaseClient.js';
 
 export default function Login({ onLogin, onRegister }) {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState('');
 
@@ -13,10 +16,36 @@ export default function Login({ onLogin, onRegister }) {
     setMessage('');
 
     try {
-      const result = await loginUser(email, password);
-      onLogin?.(result.user);
+      const data = await loginUser(email.trim(), password);
+      onLogin(data.user);
     } catch (error) {
-      setMessage(error.message);
+      setMessage(error.message || 'Unable to log in. Please try again.');
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function handleForgotPassword() {
+    if (!email.trim()) {
+      setMessage('Please enter your email address first.');
+      return;
+    }
+
+    setLoading(true);
+    setMessage('');
+
+    try {
+      const { error } = await supabase.auth.resetPasswordForEmail(
+        email.trim(),
+        {
+          redirectTo: `${window.location.origin}/?reset-password=true`
+        }
+      );
+
+      if (error) throw error;
+      setMessage('Password reset link sent! Please check your email.');
+    } catch (error) {
+      setMessage(error.message || 'Unable to send password reset link.');
     } finally {
       setLoading(false);
     }
@@ -25,38 +54,64 @@ export default function Login({ onLogin, onRegister }) {
   return (
     <main className="auth-page">
       <form className="auth-card" onSubmit={handleSubmit}>
-        <h1>J Cooperative</h1>
+        <h1>J Cooperative and Savings</h1>
+        <p>Building savings. Growing together.</p>
+
         <h2>Welcome Back!</h2>
-        <p>Sign in to your account</p>
+        <p>Log in to your cooperative account.</p>
 
-        <label>Email Address</label>
+        <label htmlFor="login-email">Email Address</label>
         <input
+          id="login-email"
           type="email"
+          placeholder="Enter your email"
           value={email}
-          onChange={e => setEmail(e.target.value)}
+          onChange={(e) => setEmail(e.target.value)}
+          autoComplete="email"
           required
         />
 
-        <label>Password</label>
+        <label htmlFor="login-password">Password</label>
         <input
-          type="password"
+          id="login-password"
+          type={showPassword ? 'text' : 'password'}
+          placeholder="Enter your password"
           value={password}
-          onChange={e => setPassword(e.target.value)}
+          onChange={(e) => setPassword(e.target.value)}
+          autoComplete="current-password"
           required
         />
 
-        {message && <p className="error">{message}</p>}
+        <label>
+          <input
+            type="checkbox"
+            checked={showPassword}
+            onChange={(e) => setShowPassword(e.target.checked)}
+          />
+          Show password
+        </label>
 
-        <button type="submit" disabled={loading}>
-          {loading ? 'Signing in...' : 'Login'}
+        <button
+          type="button"
+          onClick={handleForgotPassword}
+          disabled={loading}
+        >
+          Forgot Password?
         </button>
 
-        <p>
-          Not a member yet?{' '}
-          <button type="button" onClick={onRegister}>
-            Register here
-          </button>
-        </p>
+        {message && <p role="alert">{message}</p>}
+
+        <button type="submit" disabled={loading}>
+          {loading ? 'Logging in...' : 'LOGIN'}
+        </button>
+
+        <p>Don't have an account yet?</p>
+
+        <button type="button" onClick={onRegister}>
+          Register as Member
+        </button>
+
+        <footer>J COOPERATIVE AND SAVINGS</footer>
       </form>
     </main>
   );

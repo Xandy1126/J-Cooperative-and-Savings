@@ -1,5 +1,5 @@
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useCallback } from 'react';
 import { supabase } from './supabaseClient.js';
 import { logoutUser } from './auth.js';
 
@@ -11,8 +11,10 @@ import AdminDashboard from './pages/AdminDashboard.jsx';
 export default function App() {
   const [user, setUser] = useState(null);
   const [profile, setProfile] = useState(null);
+
   const [members, setMembers] = useState([]);
   const [pendingMembers, setPendingMembers] = useState([]);
+
   const [stats, setStats] = useState({
     members: 0,
     savings: 0,
@@ -25,25 +27,23 @@ export default function App() {
   const [error, setError] = useState('');
 
   // LOAD ADMIN DATA
-  async function loadAdminData() {
+  const loadAdminData = useCallback(async () => {
     const [pendingResult, membersResult] = await Promise.all([
       supabase.rpc('admin_get_pending_members'),
 
       supabase
         .from('profiles')
-        .select('id, full_name, email, member_number, status')
+        .select('id, full_name, email, member_number, status, created_at')
         .eq('role', 'member')
         .eq('status', 'approved')
         .order('created_at', { ascending: true })
     ]);
 
     if (pendingResult.error) {
-      console.error('Pending members error:', pendingResult.error);
       throw pendingResult.error;
     }
 
     if (membersResult.error) {
-      console.error('Approved members error:', membersResult.error);
       throw membersResult.error;
     }
 
@@ -55,13 +55,13 @@ export default function App() {
     setPendingMembers(pendingResult.data || []);
     setMembers(approvedMembers);
 
-    setStats({
-      members: approvedMembers.length,
-      savings: 0,
-      deposits: 0,
-      withdrawals: 0
-    });
-  }
+    setStats(previous => ({
+      ...previous,
+      members: approvedMembers.length
+    }));
+
+    setError('');
+  }, []);
 
   // APPROVE MEMBER
   async function handleApproveMember(memberId) {
@@ -70,7 +70,9 @@ export default function App() {
       { member_id: memberId }
     );
 
-    if (error) throw error;
+    if (error) {
+      throw error;
+    }
 
     await loadAdminData();
 
@@ -84,32 +86,43 @@ export default function App() {
       { member_id: memberId }
     );
 
-    if (error) throw error;
+    if (error) {
+      throw error;
+    }
 
     await loadAdminData();
   }
 
-  // LOAD PROFILE
+  // CHECK LOGIN SESSION
   useEffect(() => {
     let active = true;
 
     async function initialize() {
-      const { data, error } = await supabase.auth.getSession();
+      try {
+        const { data, error } = await supabase.auth.getSession();
 
-      if (!active) return;
+        if (error) {
+          throw error;
+        }
 
-      if (error) {
-        setError(error.message);
+        if (active) {
+          setUser(data.session?.user || null);
+        }
+      } catch (err) {
+        if (active) {
+          setError(err.message);
+        }
+      } finally {
+        if (active) {
+          setLoading(false);
+        }
       }
-
-      setUser(data.session?.user || null);
-      setLoading(false);
     }
 
     initialize();
 
-    const { data: listener } = supabase.auth.onAuthStateChange(
-      (_event, session) => {
+    const { data: authListener } =
+      supabase.auth.onAuthStateChange((_event, session) => {
         if (!active) return;
 
         setUser(session?.user || null);
@@ -121,16 +134,15 @@ export default function App() {
           setPage('login');
           setError('');
         }
-      }
-    );
+      });
 
     return () => {
       active = false;
-      listener.subscription.unsubscribe();
+      authListener.subscription.unsubscribe();
     };
   }, []);
 
-  // FETCH USER PROFILE
+  // FETCH PROFILE
   useEffect(() => {
     let active = true;
 
@@ -140,22 +152,27 @@ export default function App() {
         return;
       }
 
-      const { data, error } = await supabase
-        .from('profiles')
-        .select('*')
-        .eq('id', user.id)
-        .single();
+      try {
+        const { data, error } = await supabase
+          .from('profiles')
+          .select('*')
+          .eq('id', user.id)
+          .single();
 
-      if (!active) return;
+        if (error) {
+          throw error;
+        }
 
-      if (error) {
-        setError(error.message);
-        setProfile(null);
-        return;
+        if (active) {
+          setProfile(data);
+          setError('');
+        }
+      } catch (err) {
+        if (active) {
+          setProfile(null);
+          setError(err.message);
+        }
       }
-
-      setProfile(data);
-      setError('');
     }
 
     fetchProfile();
@@ -165,33 +182,67 @@ export default function App() {
     };
   }, [user]);
 
-  // LOAD ADMIN DASHBOARD DATA
+  // LOAD ADMIN DASHBOARD
   useEffect(() => {
     if (profile?.role !== 'admin') return;
 
-    loadAdminData().catch(error => {
-      console.error('Unable to load admin dashboard:', error);
-      setError(error.message);
-    });
-  }, [profile]);
+    let active = true;
 
+    async function refreshAdminData() {
+      try {
+        await loadAdminData();
+      } catch (err) {
+        console.error('Admin dashboard error:', err);
+
+        if (active) {
+          setError(err.message);
+        }
+      }
+    }
+
+    refreshAdminData();
+
+    return () => {
+      active = false;
+    };
+  }, [profile, loadAdminData]);
+
+  // LOGOUT
   async function handleLogout() {
-    await logoutUser();
+    try {
+      await logoutUser();
+      setUser(null);
+      setProfile(null);
+      setPage('login');
+    } catch (err) {
+      setError(err.message);
+    }
   }
 
+  // LOADING
   if (loading) {
     return <div className="loading">Loading J Cooperative...</div>;
   }
 
+  // LOGIN AND REGISTER
   if (!user) {
     if (page === 'register') {
-      return <Register onBack={() => setPage('login')} />;
+      return (
+        <Register
+          onBack={() => setPage('login')}
+        />
+      );
     }
 
     return (
       <Login
         onLogin={loggedInUser => {
-          setUser(loggedInUser);
+          const authenticatedUser =
+            loggedInUser?.user ||
+            loggedInUser?.session?.user ||
+            loggedInUser;
+
+          setUser(authenticatedUser);
           setPage('dashboard');
         }}
         onRegister={() => setPage('register')}
@@ -199,17 +250,24 @@ export default function App() {
     );
   }
 
+  // PROFILE ERROR
   if (error && !profile) {
     return (
       <div className="loading">
+        <h2>Unable to load profile</h2>
         <p>{error}</p>
         <button onClick={handleLogout}>Logout</button>
       </div>
     );
   }
 
+  // PROFILE LOADING
   if (!profile) {
-    return <div className="loading">Loading your profile...</div>;
+    return (
+      <div className="loading">
+        Loading your profile...
+      </div>
+    );
   }
 
   // ADMIN DASHBOARD
@@ -227,7 +285,7 @@ export default function App() {
     );
   }
 
-  // PENDING MEMBER
+  // PENDING MEMBERSHIP
   if (profile.status === 'pending') {
     return (
       <div className="loading">
@@ -238,7 +296,7 @@ export default function App() {
     );
   }
 
-  // REJECTED MEMBER
+  // REJECTED MEMBERSHIP
   if (profile.status === 'rejected') {
     return (
       <div className="loading">
@@ -249,10 +307,18 @@ export default function App() {
     );
   }
 
+  // UNAPPROVED MEMBERSHIP
   if (profile.status !== 'approved') {
-    return <div className="loading">Your membership status is unavailable.</div>;
+    return (
+      <div className="loading">
+        <h2>Membership Unavailable</h2>
+        <p>Your membership status is not yet approved.</p>
+        <button onClick={handleLogout}>Logout</button>
+      </div>
+    );
   }
 
+  // MEMBER DASHBOARD
   return (
     <Dashboard
       user={user}
